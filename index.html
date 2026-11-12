@@ -1,140 +1,100 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DevMarket Turbo — Оптимизированная версия</title>
-<script src="https://jsdelivr.net"></script>
-<style>
-    :root { --bg:#0b0f19; --card:#1e293b; --text:#f8fafc; --sub:#94a3b8; --acc:#3b82f6; --border:#334155; }
-    body.light { --bg:#f1f5f9; --card:#ffffff; --text:#0f172a; --sub:#475569; --acc:#2563eb; --border:#cbd5e1; }
-    body { background:var(--bg); color:var(--text); font-family:'Segoe UI',sans-serif; margin:0; padding:15px; min-height: 100vh; }
-    .wrap { max-width:700px; margin:0 auto; }
-    .topbar { display:flex; justify-content:space-between; align-items:center; padding-bottom:14px; margin-bottom:20px; border-bottom:1px solid var(--border); }
-    .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:20px; margin-bottom:16px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-    input, textarea { width:100%; padding:12px; margin:8px 0; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:white; box-sizing:border-box; }
-    button { background:var(--acc); color:#fff; border:none; padding:12px; border-radius:8px; cursor:pointer; font-weight:bold; width:100%; }
-    .btn-green { background:#10b981; }
-    .badge { padding:2px 8px; border-radius:4px; background:rgba(59, 130, 246, 0.2); color:var(--acc); font-size:12px; }
-    #toast { position:fixed; bottom:20px; right:20px; background:#10b981; color:#fff; padding:15px; border-radius:10px; display:none; z-index:999; }
-</style>
+    <meta charset="UTF-8"><title>DevMarket.ru — Заказ ПО</title>
+    <script src="https://jsdelivr.net"></script>
+    <style>
+        :root { --bg:#020617; --card:#0f172a; --acc:#3b82f6; --text:#f8fafc; --border:#1e293b; }
+        body { background:var(--bg); color:var(--text); font-family:system-ui; margin:0; padding:15px; }
+        .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:15px; margin-bottom:12px; }
+        .status-pill { padding:4px 10px; border-radius:20px; font-size:12px; font-weight:bold; background:rgba(59,130,246,0.1); color:var(--acc); }
+        input, textarea { width:100%; padding:10px; margin:8px 0; background:var(--bg); border:1px solid var(--border); color:white; border-radius:8px; box-sizing:border-box; }
+        button { background:var(--acc); color:white; border:none; padding:12px; border-radius:8px; cursor:pointer; font-weight:bold; width:100%; }
+        .chat-msg { margin:5px 0; font-size:14px; }
+        .owner-msg { color:#fbbf24; } .bot-msg { color:#10b981; }
+    </style>
 </head>
 <body>
-<div class="wrap">
-    <div class="topbar">
-        <b>🛒 DevMarket Turbo</b>
-        <button onclick="document.body.classList.toggle('light')" style="width:auto; padding:5px 10px;">🌓</button>
-    </div>
-
-    <!-- ВХОД -->
-    <div id="v-login" class="card">
-        <h3>🔑 Быстрый вход</h3>
-        <input type="email" id="em" placeholder="Ваш Email">
-        <button id="btn-code" onclick="sendOTP()">Получить код</button>
-        <div id="otp-box" style="display:none; margin-top:14px;">
-            <input type="text" id="otp" placeholder="6-значный код">
-            <button class="btn-green" onclick="verifyOTP()">Войти</button>
+    <div id="v-auth" class="card">
+        <h2>🚀 DevMarket.ru</h2>
+        <input id="email" type="email" placeholder="Ваш Email">
+        <button onclick="sendOTP()">Войти по коду</button>
+        <div id="otp-box" style="display:none; margin-top:10px;">
+            <input id="otp" placeholder="Код из письма">
+            <button onclick="verifyOTP()" style="background:#10b981">Подтвердить</button>
         </div>
     </div>
 
-    <!-- ИНТЕРФЕЙС -->
     <div id="v-app" style="display:none;">
-        <div class="card" id="c-form">
+        <div class="card" id="shop-form">
             <h3>➕ Создать заказ</h3>
-            <input type="text" id="c-title" placeholder="Название программы">
-            <textarea id="c-desc" placeholder="Краткое ТЗ..."></textarea>
-            <input type="number" id="c-price" placeholder="Бюджет (₽)">
-            <button class="btn-green" onclick="addOrder()">Отправить</button>
+            <input id="title" placeholder="Название программы">
+            <textarea id="desc" placeholder="Описание ТЗ..."></textarea>
+            <input id="price" type="number" placeholder="Бюджет (₽)">
+            <button onclick="createOrder()">Отправить заказ</button>
         </div>
         <div id="orders-list"></div>
     </div>
-</div>
-<div id="toast"></div>
 
 <script>
-// ВСТАВЬТЕ ВАШИ КЛЮЧИ ТУТ
-const SUPABASE_URL = "https://supabase.co";
-const SUPABASE_KEY = "sb_publishable_uBcy11J9EcLK2ApPOkGM2Q_qBIyYVB8";
-const ADMIN_EMAIL = "aperture_portal_2@mail.ru";
+    const SUPABASE_URL = "https://supabase.co";
+    const SUPABASE_KEY = "sb_publishable_uBcy11J9EcLK2ApPOkGM2Q_qBIyYVB8";
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    let userEmail = "";
 
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-let curEmail = "", isAdmin = false;
-
-async function sendOTP() {
-    const email = document.getElementById('em').value.trim();
-    const { error } = await sb.auth.signInWithOtp({ email });
-    if (error) return alert(error.message);
-    document.getElementById('otp-box').style.display = 'block';
-    alert("Код отправлен на почту!");
-}
-
-async function verifyOTP() {
-    const email = document.getElementById('em').value.trim();
-    const token = document.getElementById('otp').value.trim();
-    const { data, error } = await sb.auth.verifyOtp({ email, token, type: 'email' });
-    if (error) return alert("Неверный код!");
-    init(data.user.email);
-}
-
-function init(email) {
-    curEmail = email.toLowerCase();
-    isAdmin = (curEmail === ADMIN_EMAIL);
-    document.getElementById('v-login').style.display = 'none';
-    document.getElementById('v-app').style.display = 'block';
-    if(isAdmin) document.getElementById('c-form').style.display = 'none';
-    loadOrders();
-}
-
-async function addOrder() {
-    const title = document.getElementById('c-title').value;
-    const price = document.getElementById('c-price').value;
-    await sb.from('orders').insert([{ 
-        client_email: curEmail, title, price: parseInt(price), 
-        order_status: 'Оформлен' 
-    }]);
-    document.getElementById('c-title').value = '';
-    loadOrders();
-}
-
-// ОПТИМИЗИРОВАННАЯ ФУНКЦИЯ: СЕРВЕРНАЯ ФИЛЬТРАЦИЯ
-async function loadOrders() {
-    console.time("fetch_orders"); // Для отладки скорости
-    
-    // Создаем базовый запрос
-    let query = sb.from('orders')
-        .select('id, title, price, order_status, client_email') // Выбираем только нужные колонки
-        .order('id', {ascending: false})
-        .limit(50); // Ограничиваем количество для еще большей скорости
-
-    // Если не админ, просим базу отфильтровать только наши заказы ТАМ, на сервере
-    if (!isAdmin) {
-        query = query.eq('client_email', curEmail); 
+    async function sendOTP() {
+        const { error } = await sb.auth.signInWithOtp({ email: document.getElementById('email').value });
+        if (!error) document.getElementById('otp-box').style.display='block';
     }
 
-    const { data, error } = await query;
-    console.timeEnd("fetch_orders");
+    async function verifyOTP() {
+        const { data, error } = await sb.auth.verifyOtp({ 
+            email: document.getElementById('email').value, 
+            token: document.getElementById('otp').value, type: 'email' 
+        });
+        if (data.user) {
+            userEmail = data.user.email;
+            document.getElementById('v-auth').style.display='none';
+            document.getElementById('v-app').style.display='block';
+            loadOrders();
+            // ВКЛЮЧАЕМ REALTIME
+            sb.channel('any').on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, payload => {
+                loadOrders();
+            }).subscribe();
+        }
+    }
 
-    if (error) return console.error(error);
+    async function createOrder() {
+        await sb.from('orders').insert([{
+            client_email: userEmail,
+            title: document.getElementById('title').value,
+            description: document.getElementById('desc').value,
+            price: parseInt(document.getElementById('price').value),
+            chat_json: JSON.stringify([{sender:'bot', text:'Заказ принят! ИИ анализирует ТЗ...'}])
+        }]);
+    }
 
-    document.getElementById('orders-list').innerHTML = data.map(o => `
-        <div class="card">
-            <div style="display:flex; justify-content:space-between">
-                <b>#${o.id} ${o.title}</b>
-                <span class="badge">${o.order_status}</span>
+    async function loadOrders() {
+        const { data } = await sb.from('orders').select('*').order('id', {ascending:false});
+        const isAdmin = userEmail === "aperture_portal_2@mail.ru";
+        const list = isAdmin ? data : data.filter(o => o.client_email === userEmail);
+        
+        document.getElementById('orders-list').innerHTML = list.map(o => `
+            <div class="card">
+                <div style="display:flex; justify-content:space-between">
+                    <b>#${o.id} ${o.title}</b>
+                    <span class="status-pill">${o.order_status}</span>
+                </div>
+                <p style="font-size:13px; color:#94a3b8">${o.description}</p>
+                <div style="font-weight:bold; color:#10b981">${o.price} ₽</div>
+                ${isAdmin ? `<button onclick="updateStatus(${o.id}, 'В работе')" style="width:auto; padding:5px; margin-top:5px;">Начать работу</button>` : ''}
             </div>
-            <div style="margin-top:8px; font-weight:bold; color:#10b981;">${o.price} ₽</div>
-            ${isAdmin ? `<div style="font-size:11px; color:gold; margin-top:5px;">👤 Клиент: ${o.client_email}</div>` : ''}
-        </div>
-    `).join('') || '<p style="text-align:center; color:gray;">Заказов пока нет</p>';
-}
+        `).join('') || "Заказов нет";
+    }
 
-(async () => {
-    const { data } = await sb.auth.getSession();
-    if (data?.session?.user) init(data.session.user.email);
-})();
-
-// Обновление при изменениях в базе
-sb.channel('db-changes').on('postgres_changes', {event:'*', schema:'public', table:'orders'}, () => loadOrders()).subscribe();
+    async function updateStatus(id, st) {
+        await sb.from('orders').update({ order_status: st }).eq('id', id);
+    }
 </script>
 </body>
 </html>
