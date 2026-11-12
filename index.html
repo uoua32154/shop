@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DevMarket — Маркетплейс программ и игр</title>
+<script src="https://jsdelivr.net"></script>
+<style>
+    :root { --bg:#0b0f19; --card:#1e293b; --text:#f8fafc; --sub:#94a3b8; --acc:#3b82f6; --border:#334155; }
+    body.light { --bg:#f1f5f9; --card:#ffffff; --text:#0f172a; --sub:#475569; --acc:#2563eb; --border:#cbd5e1; }
+    body { background:var(--bg); color:var(--text); font-family:'Segoe UI',sans-serif; margin:0; padding:15px; transition:0.2s; min-height: 100vh;}
+    .wrap { max-width:920px; margin:0 auto; }
+    .topbar { display:flex; justify-content:space-between; align-items:center; padding-bottom:14px; margin-bottom:20px; border-bottom:1px solid var(--border); }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:20px; margin-bottom:16px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+    input, textarea, select { width:100%; padding:11px; margin:6px 0; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text); box-sizing:border-box; }
+    button { background:var(--acc); color:#fff; border:none; padding:11px 18px; border-radius:8px; cursor:pointer; font-weight:bold; transition: 0.2s; }
+    button:hover { filter: brightness(1.1); }
+    .btn-green { background:#10b981; } .btn-red { background:#ef4444; } .btn-amber { background:#f59e0b; } .btn-gray { background:#475569; }
+    .warn { background:rgba(239,68,68,0.12); border:1px solid #ef4444; padding:12px; border-radius:8px; font-size:13px; margin-bottom:12px; }
+    .tracker { display:flex; justify-content:space-between; margin:14px 0; padding:12px; background:var(--bg); border-radius:10px; font-size:13px; }
+    .step { color:var(--sub); } .step.done { color:#10b981; font-weight:bold; }
+    .chat { background:var(--bg); height:170px; overflow-y:auto; padding:10px; border-radius:8px; border:1px solid var(--border); margin:10px 0; font-size:13px; white-space:pre-wrap; }
+    .row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    #toast { position:fixed; bottom:20px; right:20px; background:#10b981; color:#fff; padding:14px 20px; border-radius:10px; display:none; font-weight:bold; z-index:999; }
+</style>
+</head>
+<body>
+<div class="wrap">
+    <div class="topbar">
+        <div><b style="font-size:22px;">🛒 DevMarket</b> <small id="u-lbl" style="color:var(--sub);"></small></div>
+        <div style="display:flex; gap:8px;">
+            <button class="btn-gray" onclick="toggleTheme()">🌓 Тема</button>
+            <button id="btn-out" class="btn-red" style="display:none;" onclick="logout()">Выйти</button>
+        </div>
+    </div>
+
+    <div id="v-maint" class="card" style="display:none; text-align:center; padding:40px 20px;">
+        <h2>🛠 Технический перерыв</h2>
+        <p id="maint-txt" style="color:var(--sub);"></p>
+        <button class="btn-gray" onclick="forceLogin=true; refreshUI();">Вход для владельца</button>
+    </div>
+
+    <div id="v-login" class="card" style="display:none;">
+        <h3>🔑 Вход в личный кабинет</h3>
+        <p style="color:var(--sub); font-size:14px;">Введите ваш Email для получения кода входа.</p>
+        <input type="email" id="em" placeholder="example@mail.ru">
+        <button id="btn-code" onclick="sendOTP()">Получить код на почту</button>
+        <div id="otp-box" style="display:none; margin-top:14px;">
+            <input type="text" id="otp" placeholder="6-значный код">
+            <button class="btn-green" onclick="verifyOTP()">Войти</button>
+        </div>
+    </div>
+
+    <div id="v-admin" style="display:none;">
+        <div class="card" style="border:2px solid #f59e0b;">
+            <h3 style="margin:0;">👑 Панель Владельца</h3>
+            <div class="row2" style="margin-top:12px;">
+                <div><label>Мин. цена Софта:</label><input type="number" id="s-smin"></div>
+                <div><label>Макс. цена Софта:</label><input type="number" id="s-smax"></div>
+            </div>
+            <div class="row2">
+                <div><label>Мин. цена Игры:</label><input type="number" id="s-gmin"></div>
+                <div><label>Номер СБП:</label><input type="text" id="s-phone"></div>
+            </div>
+            <button class="btn-green" style="width:100%; margin-top:8px;" onclick="saveCfg()">💾 Обновить настройки</button>
+        </div>
+    </div>
+
+    <div id="v-shop" style="display:none;">
+        <div class="card">
+            <h3>➕ Оформить заказ</h3>
+            <div class="warn"><b>⚠️ Лимиты:</b> <span id="lim-lbl"></span>. Разработчик может отказать без объяснения причин.</div>
+            <select id="c-cat" onchange="syncPrice()"><option value="Программа" id="o-soft"></option><option value="Игра" id="o-game"></option></select>
+            <input type="text" id="c-title" placeholder="Название программы">
+            <textarea id="c-desc" rows="3" placeholder="Техническое задание..."></textarea>
+            <input type="number" id="c-price">
+            <div style="padding:10px; background:var(--bg); border-radius:8px; margin:6px 0; font-size:14px;">Оплата на СБП: <b id="p-lbl" style="color:#34d399;"></b></div>
+            <input type="text" id="c-proof" placeholder="ФИО или последние 4 цифры карты">
+            <button class="btn-green" style="width:100%;" onclick="addOrder()">🚀 Отправить заказ</button>
+        </div>
+    </div>
+
+    <div id="v-orders" style="display:none;">
+        <h3>📦 Ваши заказы</h3>
+        <div id="orders-box"></div>
+    </div>
+</div>
+<div id="toast"></div>
+
+<script>
+// ДАННЫЕ УЖЕ ВСТАВЛЕНЫ ДЯДЕЙ ДЖИНИНАЕМ
+const SUPABASE_URL = "https://lfyqzlmbogrujkelzbsm.supabase.co";
+const SUPABASE_KEY = "sb_publishable_uBcy11J9EcLK2ApPOkGM2Q_qBIyYVB8";
+const ADMIN_EMAIL = "aperture_portal_2@mail.ru";
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let curEmail = "", isAdmin = false, cfg = {}, forceLogin = false;
+
+if (localStorage.getItem('dm_theme') === 'light') document.body.classList.add('light');
+function toggleTheme() {
+    document.body.classList.toggle('light');
+    localStorage.setItem('dm_theme', document.body.classList.contains('light') ? 'light' : 'dark');
+}
+function toast(m) { const t = document.getElementById('toast'); t.innerText = m; t.style.display = 'block'; setTimeout(()=>t.style.display='none', 5000); }
+
+async function loadCfg() {
+    const { data } = await sb.from('settings').select('*');
+    if (data) data.forEach(r => cfg[r.key] = r.value);
+    refreshUI();
+}
+
+function syncPrice() {
+    const c = document.getElementById('c-cat').value;
+    document.getElementById('c-price').value = c === 'Программа' ? (cfg.soft_min || 500) : (cfg.game_min || 90);
+}
+
+function refreshUI() {
+    document.getElementById('lim-lbl').innerText = `Программы: ${cfg.soft_min || 500}-${cfg.soft_max || 2000} ₽`;
+    document.getElementById('o-soft').innerText = `💻 Софт (${cfg.soft_min || 500} – ${cfg.soft_max || 2000} ₽)`;
+    document.getElementById('o-game').innerText = `🎮 Игра (от ${cfg.game_min || 90} ₽)`;
+    document.getElementById('p-lbl').innerText = cfg.pay_phone || '+7 909 996-29-68';
+    
+    if (isAdmin) {
+        document.getElementById('v-login').style.display = 'none';
+        document.getElementById('v-shop').style.display = 'none';
+        document.getElementById('v-admin').style.display = 'block';
+        document.getElementById('v-orders').style.display = 'block';
+        document.getElementById('btn-out').style.display = 'inline-block';
+        document.getElementById('u-lbl').innerText = `(${curEmail} — ВЛАДЕЛЕЦ)`;
+        return;
+    }
+    if (!curEmail) {
+        document.getElementById('v-login').style.display = 'block';
+        document.getElementById('v-orders').style.display = 'none';
+    } else {
+        document.getElementById('v-login').style.display = 'none';
+        document.getElementById('v-shop').style.display = 'block';
+        document.getElementById('v-orders').style.display = 'block';
+        document.getElementById('btn-out').style.display = 'inline-block';
+        document.getElementById('u-lbl').innerText = `(${curEmail})`;
+    }
+}
+
+async function sendOTP() {
+    const email = document.getElementById('em').value.trim().toLowerCase();
+    if (!email) return alert('Введите Email!');
+    const { error } = await sb.auth.signInWithOtp({ email });
+    if (error) return alert(error.message);
+    document.getElementById('otp-box').style.display = 'block';
+    toast('📧 Код отправлен на почту!');
+}
+
+async function verifyOTP() {
+    const email = document.getElementById('em').value.trim().toLowerCase();
+    const token = document.getElementById('otp').value.trim();
+    const { data, error } = await sb.auth.verifyOtp({ email, token, type: 'email' });
+    if (error) return alert('Неверный код!');
+    curEmail = data.user.email;
+    isAdmin = (curEmail === ADMIN_EMAIL.toLowerCase());
+    refreshUI();
+    loadOrders();
+}
+
+async function logout() { await sb.auth.signOut(); location.reload(); }
+
+async function addOrder() {
+    const cat = document.getElementById('c-cat').value;
+    const title = document.getElementById('c-title').value.trim();
+    const description = document.getElementById('c-desc').value.trim();
+    const price = parseInt(document.getElementById('c-price').value || '0');
+    if (!title || !description) return alert('Заполните данные!');
+
+    await sb.from('orders').insert([{
+        client_email: curEmail, category: cat, title, description, price,
+        pay_method: 'sbp', pay_proof: document.getElementById('c-proof').value.trim(),
+        chat_json: JSON.stringify([{sender:'bot', text:'Ваш заказ принят! Ожидайте разработчика.'}])
+    }]);
+    toast('✅ Заказ успешно создан!');
+    loadOrders();
+}
+
+async function loadOrders() {
+    if (!curEmail) return;
+    let q = sb.from('orders').select('*').order('id', {ascending: false});
+    if (!isAdmin) q = q.eq('client_email', curEmail);
+    const { data } = await q;
+    const steps = ['Оформлен', 'В работе', 'Готов', 'Доставлен'];
+
+    document.getElementById('orders-box').innerHTML = (data || []).map(o => {
+        const idx = steps.indexOf(o.order_status);
+        return `
+        <div class="card">
+            <div style="display:flex; justify-content:space-between;">
+                <b>#${o.id} ${o.title}</b>
+                <span>💰 <b>${o.price} ₽</b></span>
+            </div>
+            <div class="tracker">${steps.map((s,i)=>`<span class="step ${i<=idx?'done':''}">● ${s}</span>`).join('')}</div>
+            <p style="font-size:14px; color:var(--sub)">${o.description}</p>
+            ${o.result_link ? `<div style="background:#064e3b; padding:10px; border-radius:8px; margin:10px 0;"><a href="${o.result_link}" target="_blank" style="color:#6ee7b7;">🎁 Скачать программу</a></div>` : ''}
+        </div>`;
+    }).join('') || '<p style="color:var(--sub);">Заказов пока нет.</p>';
+}
+
+(async () => {
+    await loadCfg();
+    const { data } = await sb.auth.getSession();
+    if (data?.session?.user) {
+        curEmail = data.session.user.email;
+        isAdmin = (curEmail === ADMIN_EMAIL.toLowerCase());
+        refreshUI();
+        loadOrders();
+    }
+})();
+</script>
+</body>
+</html>
