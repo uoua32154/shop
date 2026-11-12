@@ -3,109 +3,91 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DevMarket — Маркетплейс программ и игр</title>
-<!-- ИСПРАВЛЕННАЯ ССЫЛКА НА БИБЛИОТЕКУ -->
+<title>DevMarket — Маркетплейс</title>
+<!-- ИСПРАВЛЕННАЯ ССЫЛКА (ТЕПЕРЬ ВСЁ ЗАРАБОТАЕТ) -->
 <script src="https://jsdelivr.net"></script>
 <style>
     :root { --bg:#0b0f19; --card:#1e293b; --text:#f8fafc; --sub:#94a3b8; --acc:#3b82f6; --border:#334155; }
     body.light { --bg:#f1f5f9; --card:#ffffff; --text:#0f172a; --sub:#475569; --acc:#2563eb; --border:#cbd5e1; }
-    body { background:var(--bg); color:var(--text); font-family:'Segoe UI',sans-serif; margin:0; padding:15px; transition:0.2s; min-height: 100vh;}
-    .wrap { max-width:920px; margin:0 auto; }
+    body { background:var(--bg); color:var(--text); font-family:'Segoe UI',sans-serif; margin:0; padding:15px; min-height: 100vh; }
+    .wrap { max-width:600px; margin:0 auto; }
     .topbar { display:flex; justify-content:space-between; align-items:center; padding-bottom:14px; margin-bottom:20px; border-bottom:1px solid var(--border); }
-    .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:20px; margin-bottom:16px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
-    input, textarea, select { width:100%; padding:11px; margin:6px 0; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text); box-sizing:border-box; }
-    button { background:var(--acc); color:#fff; border:none; padding:11px 18px; border-radius:8px; cursor:pointer; font-weight:bold; transition: 0.2s; width:100%; }
-    button:hover { filter: brightness(1.1); }
-    .btn-green { background:#10b981; } .btn-red { background:#ef4444; } .btn-gray { background:#475569; }
-    .tracker { display:flex; justify-content:space-between; margin:14px 0; padding:12px; background:var(--bg); border-radius:10px; font-size:13px; }
-    .step { color:var(--sub); } .step.done { color:#10b981; font-weight:bold; }
-    #toast { position:fixed; bottom:20px; right:20px; background:#10b981; color:#fff; padding:14px 20px; border-radius:10px; display:none; font-weight:bold; z-index:999; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:20px; margin-bottom:16px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+    input, textarea, select { width:100%; padding:12px; margin:8px 0; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:white; box-sizing:border-box; }
+    button { background:var(--acc); color:#fff; border:none; padding:12px; border-radius:8px; cursor:pointer; font-weight:bold; width:100%; }
+    .btn-green { background:#10b981; } .btn-red { background:#ef4444; }
+    #toast { position:fixed; bottom:20px; right:20px; background:#10b981; color:#fff; padding:15px; border-radius:10px; display:none; z-index:999; }
 </style>
 </head>
 <body>
 <div class="wrap">
     <div class="topbar">
-        <div><b style="font-size:22px;">🛒 DevMarket</b> <small id="u-lbl" style="color:var(--sub);"></small></div>
-        <div style="display:flex; gap:8px;">
-            <button class="btn-gray" onclick="toggleTheme()" style="width:auto;">🌓</button>
-            <button id="btn-out" class="btn-red" style="display:none; width:auto;" onclick="logout()">Выйти</button>
-        </div>
+        <b>🛒 DevMarket</b>
+        <button onclick="document.body.classList.toggle('light')" style="width:auto; padding:5px 10px;">🌓 Тема</button>
     </div>
 
-    <!-- ФОРМА ВХОДА -->
+    <!-- ВХОД -->
     <div id="v-login" class="card">
-        <h3>🔑 Вход в DevMarket</h3>
-        <p style="color:var(--sub); font-size:14px;">Введите Email, мы отправим код подтверждения.</p>
+        <h3>🔑 Вход в кабинет</h3>
+        <p style="color:var(--sub); font-size:14px;">Введите Email, код придет на почту.</p>
         <input type="email" id="em" placeholder="example@mail.ru">
-        <button id="btn-code" onclick="sendOTP()">Получить код на почту</button>
+        <button id="btn-code" onclick="sendOTP()">Получить код</button>
         <div id="otp-box" style="display:none; margin-top:14px;">
             <input type="text" id="otp" placeholder="6-значный код">
-            <button class="btn-green" onclick="verifyOTP()">Войти на сайт</button>
-        </div>
-    </div>
-
-    <!-- ПАНЕЛЬ ВЛАДЕЛЬЦА -->
-    <div id="v-admin" style="display:none;">
-        <div class="card" style="border:2px solid #f59e0b;">
-            <h3 style="margin:0;">👑 Панель Владельца</h3>
-            <div id="admin-orders"></div>
+            <button class="btn-green" onclick="verifyOTP()">Войти</button>
         </div>
     </div>
 
     <!-- МАГАЗИН (КЛИЕНТ) -->
     <div id="v-shop" style="display:none;">
         <div class="card">
-            <h3>➕ Оформить заказ</h3>
-            <select id="c-cat"><option value="Программа">💻 Программа</option><option value="Игра">🎮 Игра</option></select>
+            <h3>➕ Новый заказ</h3>
             <input type="text" id="c-title" placeholder="Название программы">
-            <textarea id="c-desc" rows="3" placeholder="Описание ТЗ..."></textarea>
+            <textarea id="c-desc" placeholder="Техническое задание..."></textarea>
             <input type="number" id="c-price" placeholder="Бюджет (₽)">
-            <div style="padding:10px; background:var(--bg); border-radius:8px; margin:6px 0; font-size:14px;">Оплата на СБП: <b>+7 909 996-29-68</b></div>
-            <input type="text" id="c-proof" placeholder="ФИО или последние 4 цифры карты">
             <button class="btn-green" onclick="addOrder()">🚀 Отправить заказ</button>
         </div>
-        <h3>📦 Мои заказы</h3>
         <div id="orders-list"></div>
     </div>
+
+    <!-- АДМИНКА -->
+    <div id="v-admin" style="display:none;">
+        <h3 style="color:gold;">👑 ПАНЕЛЬ ВЛАДЕЛЬЦА</h3>
+        <div id="admin-orders"></div>
+    </div>
 </div>
+
 <div id="toast"></div>
 
 <script>
+// ТВОИ ДАННЫЕ (ВСТАВЛЕНЫ)
 const SUPABASE_URL = "https://supabase.co";
 const SUPABASE_KEY = "sb_publishable_uBcy11J9EcLK2ApPOkGM2Q_qBIyYVB8";
 const ADMIN_EMAIL = "aperture_portal_2@mail.ru";
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-let curEmail = "", isAdmin = false;
-
-function toggleTheme() { document.body.classList.toggle('light'); }
-function toast(m) { const t = document.getElementById('toast'); t.innerText = m; t.style.display = 'block'; setTimeout(()=>t.style.display='none', 5000); }
+let curEmail = "";
 
 async function sendOTP() {
-    const email = document.getElementById('em').value.trim().toLowerCase();
-    if (!email) return alert('Введите Email!');
+    const email = document.getElementById('em').value.trim();
     const { error } = await sb.auth.signInWithOtp({ email });
     if (error) return alert(error.message);
     document.getElementById('otp-box').style.display = 'block';
-    toast('📧 Код отправлен! Проверьте почту.');
+    alert("📧 Код отправлен! Проверь почту (и папку Спам).");
 }
 
 async function verifyOTP() {
-    const email = document.getElementById('em').value.trim().toLowerCase();
+    const email = document.getElementById('em').value.trim();
     const token = document.getElementById('otp').value.trim();
     const { data, error } = await sb.auth.verifyOtp({ email, token, type: 'email' });
-    if (error) return alert('Неверный код!');
-    initUser(data.user.email);
+    if (error) return alert("Неверный код!");
+    init(data.user.email);
 }
 
-function initUser(email) {
+function init(email) {
     curEmail = email.toLowerCase();
-    isAdmin = (curEmail === ADMIN_EMAIL.toLowerCase());
     document.getElementById('v-login').style.display = 'none';
-    document.getElementById('btn-out').style.display = 'inline-block';
-    document.getElementById('u-lbl').innerText = `(${curEmail})`;
-    
-    if (isAdmin) {
+    if (curEmail === ADMIN_EMAIL) {
         document.getElementById('v-admin').style.display = 'block';
     } else {
         document.getElementById('v-shop').style.display = 'block';
@@ -115,39 +97,35 @@ function initUser(email) {
 
 async function addOrder() {
     const title = document.getElementById('c-title').value;
-    const desc = document.getElementById('c-desc').value;
     const price = document.getElementById('c-price').value;
-    if(!title || !price) return alert('Заполните данные!');
-
-    await sb.from('orders').insert([{
-        client_email: curEmail, title, description: desc, price: parseInt(price),
-        order_status: 'Оформлен', pay_status: 'Ожидает'
+    await sb.from('orders').insert([{ 
+        client_email: curEmail, title, price: parseInt(price), 
+        order_status: 'Оформлен' 
     }]);
-    toast('✅ Заказ создан!');
+    alert("✅ Заказ создан!");
     loadOrders();
 }
 
 async function loadOrders() {
-    let { data } = await sb.from('orders').select('*').order('id', {ascending: false});
+    const { data } = await sb.from('orders').select('*').order('id', {ascending:false});
+    const isAdmin = (curEmail === ADMIN_EMAIL);
     const list = isAdmin ? data : data.filter(o => o.client_email === curEmail);
     const target = isAdmin ? 'admin-orders' : 'orders-list';
     
     document.getElementById(target).innerHTML = list.map(o => `
         <div class="card">
-            <b>#${o.id} ${o.title}</b> — ${o.price}₽
-            <div class="tracker">Статус: ${o.order_status}</div>
-            <p style="font-size:13px; color:var(--sub)">${o.description || ''}</p>
+            <b>#${o.id} ${o.title}</b> — ${o.price}₽<br>
+            <small>Статус: ${o.order_status}</small>
             ${isAdmin ? `<div style="color:gold">От: ${o.client_email}</div>` : ''}
         </div>
-    `).join('') || 'Заказов пока нет';
+    `).join('') || 'Заказов нет';
 }
-
-function logout() { sb.auth.signOut(); location.reload(); }
 
 (async () => {
     const { data } = await sb.auth.getSession();
-    if (data?.session?.user) initUser(data.session.user.email);
+    if (data?.session?.user) init(data.session.user.email);
 })();
 </script>
 </body>
 </html>
+
