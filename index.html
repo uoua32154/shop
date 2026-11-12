@@ -3,34 +3,33 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DevMarket — Маркетплейс</title>
-<!-- ИСПРАВЛЕННАЯ ССЫЛКА (ТЕПЕРЬ ВСЁ ЗАРАБОТАЕТ) -->
+<title>DevMarket Turbo — Оптимизированная версия</title>
 <script src="https://jsdelivr.net"></script>
 <style>
     :root { --bg:#0b0f19; --card:#1e293b; --text:#f8fafc; --sub:#94a3b8; --acc:#3b82f6; --border:#334155; }
     body.light { --bg:#f1f5f9; --card:#ffffff; --text:#0f172a; --sub:#475569; --acc:#2563eb; --border:#cbd5e1; }
     body { background:var(--bg); color:var(--text); font-family:'Segoe UI',sans-serif; margin:0; padding:15px; min-height: 100vh; }
-    .wrap { max-width:600px; margin:0 auto; }
+    .wrap { max-width:700px; margin:0 auto; }
     .topbar { display:flex; justify-content:space-between; align-items:center; padding-bottom:14px; margin-bottom:20px; border-bottom:1px solid var(--border); }
     .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:20px; margin-bottom:16px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-    input, textarea, select { width:100%; padding:12px; margin:8px 0; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:white; box-sizing:border-box; }
+    input, textarea { width:100%; padding:12px; margin:8px 0; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:white; box-sizing:border-box; }
     button { background:var(--acc); color:#fff; border:none; padding:12px; border-radius:8px; cursor:pointer; font-weight:bold; width:100%; }
-    .btn-green { background:#10b981; } .btn-red { background:#ef4444; }
+    .btn-green { background:#10b981; }
+    .badge { padding:2px 8px; border-radius:4px; background:rgba(59, 130, 246, 0.2); color:var(--acc); font-size:12px; }
     #toast { position:fixed; bottom:20px; right:20px; background:#10b981; color:#fff; padding:15px; border-radius:10px; display:none; z-index:999; }
 </style>
 </head>
 <body>
 <div class="wrap">
     <div class="topbar">
-        <b>🛒 DevMarket</b>
-        <button onclick="document.body.classList.toggle('light')" style="width:auto; padding:5px 10px;">🌓 Тема</button>
+        <b>🛒 DevMarket Turbo</b>
+        <button onclick="document.body.classList.toggle('light')" style="width:auto; padding:5px 10px;">🌓</button>
     </div>
 
     <!-- ВХОД -->
     <div id="v-login" class="card">
-        <h3>🔑 Вход в кабинет</h3>
-        <p style="color:var(--sub); font-size:14px;">Введите Email, код придет на почту.</p>
-        <input type="email" id="em" placeholder="example@mail.ru">
+        <h3>🔑 Быстрый вход</h3>
+        <input type="email" id="em" placeholder="Ваш Email">
         <button id="btn-code" onclick="sendOTP()">Получить код</button>
         <div id="otp-box" style="display:none; margin-top:14px;">
             <input type="text" id="otp" placeholder="6-значный код">
@@ -38,42 +37,35 @@
         </div>
     </div>
 
-    <!-- МАГАЗИН (КЛИЕНТ) -->
-    <div id="v-shop" style="display:none;">
-        <div class="card">
-            <h3>➕ Новый заказ</h3>
+    <!-- ИНТЕРФЕЙС -->
+    <div id="v-app" style="display:none;">
+        <div class="card" id="c-form">
+            <h3>➕ Создать заказ</h3>
             <input type="text" id="c-title" placeholder="Название программы">
-            <textarea id="c-desc" placeholder="Техническое задание..."></textarea>
+            <textarea id="c-desc" placeholder="Краткое ТЗ..."></textarea>
             <input type="number" id="c-price" placeholder="Бюджет (₽)">
-            <button class="btn-green" onclick="addOrder()">🚀 Отправить заказ</button>
+            <button class="btn-green" onclick="addOrder()">Отправить</button>
         </div>
         <div id="orders-list"></div>
     </div>
-
-    <!-- АДМИНКА -->
-    <div id="v-admin" style="display:none;">
-        <h3 style="color:gold;">👑 ПАНЕЛЬ ВЛАДЕЛЬЦА</h3>
-        <div id="admin-orders"></div>
-    </div>
 </div>
-
 <div id="toast"></div>
 
 <script>
-// ТВОИ ДАННЫЕ (ВСТАВЛЕНЫ)
+// ВСТАВЬТЕ ВАШИ КЛЮЧИ ТУТ
 const SUPABASE_URL = "https://supabase.co";
 const SUPABASE_KEY = "sb_publishable_uBcy11J9EcLK2ApPOkGM2Q_qBIyYVB8";
 const ADMIN_EMAIL = "aperture_portal_2@mail.ru";
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-let curEmail = "";
+let curEmail = "", isAdmin = false;
 
 async function sendOTP() {
     const email = document.getElementById('em').value.trim();
     const { error } = await sb.auth.signInWithOtp({ email });
     if (error) return alert(error.message);
     document.getElementById('otp-box').style.display = 'block';
-    alert("📧 Код отправлен! Проверь почту (и папку Спам).");
+    alert("Код отправлен на почту!");
 }
 
 async function verifyOTP() {
@@ -86,12 +78,10 @@ async function verifyOTP() {
 
 function init(email) {
     curEmail = email.toLowerCase();
+    isAdmin = (curEmail === ADMIN_EMAIL);
     document.getElementById('v-login').style.display = 'none';
-    if (curEmail === ADMIN_EMAIL) {
-        document.getElementById('v-admin').style.display = 'block';
-    } else {
-        document.getElementById('v-shop').style.display = 'block';
-    }
+    document.getElementById('v-app').style.display = 'block';
+    if(isAdmin) document.getElementById('c-form').style.display = 'none';
     loadOrders();
 }
 
@@ -102,30 +92,49 @@ async function addOrder() {
         client_email: curEmail, title, price: parseInt(price), 
         order_status: 'Оформлен' 
     }]);
-    alert("✅ Заказ создан!");
+    document.getElementById('c-title').value = '';
     loadOrders();
 }
 
+// ОПТИМИЗИРОВАННАЯ ФУНКЦИЯ: СЕРВЕРНАЯ ФИЛЬТРАЦИЯ
 async function loadOrders() {
-    const { data } = await sb.from('orders').select('*').order('id', {ascending:false});
-    const isAdmin = (curEmail === ADMIN_EMAIL);
-    const list = isAdmin ? data : data.filter(o => o.client_email === curEmail);
-    const target = isAdmin ? 'admin-orders' : 'orders-list';
+    console.time("fetch_orders"); // Для отладки скорости
     
-    document.getElementById(target).innerHTML = list.map(o => `
+    // Создаем базовый запрос
+    let query = sb.from('orders')
+        .select('id, title, price, order_status, client_email') // Выбираем только нужные колонки
+        .order('id', {ascending: false})
+        .limit(50); // Ограничиваем количество для еще большей скорости
+
+    // Если не админ, просим базу отфильтровать только наши заказы ТАМ, на сервере
+    if (!isAdmin) {
+        query = query.eq('client_email', curEmail); 
+    }
+
+    const { data, error } = await query;
+    console.timeEnd("fetch_orders");
+
+    if (error) return console.error(error);
+
+    document.getElementById('orders-list').innerHTML = data.map(o => `
         <div class="card">
-            <b>#${o.id} ${o.title}</b> — ${o.price}₽<br>
-            <small>Статус: ${o.order_status}</small>
-            ${isAdmin ? `<div style="color:gold">От: ${o.client_email}</div>` : ''}
+            <div style="display:flex; justify-content:space-between">
+                <b>#${o.id} ${o.title}</b>
+                <span class="badge">${o.order_status}</span>
+            </div>
+            <div style="margin-top:8px; font-weight:bold; color:#10b981;">${o.price} ₽</div>
+            ${isAdmin ? `<div style="font-size:11px; color:gold; margin-top:5px;">👤 Клиент: ${o.client_email}</div>` : ''}
         </div>
-    `).join('') || 'Заказов нет';
+    `).join('') || '<p style="text-align:center; color:gray;">Заказов пока нет</p>';
 }
 
 (async () => {
     const { data } = await sb.auth.getSession();
     if (data?.session?.user) init(data.session.user.email);
 })();
+
+// Обновление при изменениях в базе
+sb.channel('db-changes').on('postgres_changes', {event:'*', schema:'public', table:'orders'}, () => loadOrders()).subscribe();
 </script>
 </body>
 </html>
-
