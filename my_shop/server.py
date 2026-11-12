@@ -1,317 +1,194 @@
+import os
 import sqlite3
 import json
+import smtplib
+import random
+import string
+import requests
+from datetime import datetime
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import uvicorn
 
 app = FastAPI()
 
-# 1. Инициализация базы данных SQLite (создается автоматически)
+# ================= ВАШИ ДАННЫЕ =================
+MAIL_USER = "aperture_portal_2@mail.ru"
+MAIL_PASS = "ij2ivBPg8vhyScaT8vJD"
+DEFAULT_PHONE = "+7 909 996-29-68"
+WORKER_TOKEN = "ai_secure_access_777" # Пароль для вашего домашнего ПК
+# ===============================================
+
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# --- ЛОГИКА БАЗЫ ДАННЫХ (SQLite для тестов / PostgreSQL для облака) ---
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+def get_db_connection():
+    # Если мы в облаке и есть DATABASE_URL, используем PostgreSQL
+    if DATABASE_URL:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+        return conn
+    # Иначе локально используем SQLite
+    conn = sqlite3.connect("local.db")
+    conn.row_factory = sqlite3.Row
+    return conn
+
 def init_db():
-    conn = sqlite3.connect("orders.db")
+    conn = get_db_connection()
     c = conn.cursor()
-    c.execute("""CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    email TEXT UNIQUE,
-                    password TEXT
-                )""")
+    # SQL команды одинаковы для обоих типов БД (базовый синтаксис)
+    c.execute("CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, role TEXT, verify_code TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
     c.execute("""CREATE TABLE IF NOT EXISTS orders (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    client_email TEXT,
-                    title TEXT,
-                    description TEXT,
-                    price INTEGER,
-                    status TEXT
-                )""")
+        id SERIAL PRIMARY KEY if NOT EXISTS id integer PRIMARY KEY, 
+        client_email TEXT, category TEXT, title TEXT, description TEXT,
+        price INTEGER, pay_method TEXT, pay_status TEXT DEFAULT 'Ожидает',
+        order_status TEXT DEFAULT 'Оформлен', ai_state TEXT DEFAULT 'active',
+        ai_pending_req TEXT DEFAULT '', result_link TEXT DEFAULT '',
+        chat_json TEXT DEFAULT '[]', created_at TEXT
+    )""")
+    # SQLite fix (SERIAL не работает в sqlite) - упростим для универсальности
+    try:
+        c.execute("INSERT INTO settings (key, value) VALUES ('soft_min', '500') ON CONFLICT DO NOTHING")
+        c.execute("INSERT INTO settings (key, value) VALUES ('soft_max', '2000') ON CONFLICT DO NOTHING")
+        c.execute("INSERT INTO settings (key, value) VALUES ('pay_phone', %s) ON CONFLICT DO NOTHING", (DEFAULT_PHONE,))
+    except: pass
     conn.commit()
     conn.close()
 
 init_db()
 
-# 2. Менеджер уведомлений в реальном времени (WebSocket)
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections = list()
+# --- ОТПРАВКА ПИСЕМ ---
+def send_mail(to, code):
+    try:
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        msg = MIMEMultipart()
+        msg["From"], msg["To"], msg["Subject"] = MAIL_USER, to, "Код DevMarket"
+        msg.attach(MIMEText(f"Ваш код входа: {code}", "plain"))
+        server = smtplib.SMTP_SSL("smtp.mail.ru", 465, timeout=10)
+        server.login(MAIL_USER, MAIL_PASS)
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        print(f"Mail error: {e}")
+        return False
 
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
+# --- REAL-TIME ---
+class WSManager:
+    def __init__(self): self.conns = []
+    async def connect(self, ws: WebSocket): await ws.accept(); self.conns.append(ws)
+    def disconnect(self, ws: WebSocket): self.conns.remove(ws)
+    async def broadcast(self, data: dict):
+        for c in self.conns:
+            try: await c.send_text(json.dumps(data))
+            except: pass
+manager = WSManager()
 
-    def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
+# --- API ---
+class AuthReq(BaseModel): email: str
+class VerifyReq(BaseModel): email: str; code: str
+class OrderReq(BaseModel): client_email: str; category: str; title: str; description: str; price: int; pay_method: str
+class WorkerUpdate(BaseModel): token: str; order_id: int; status: str; result_link: str = ""
 
-    async def broadcast(self, message: dict):
-        for connection in list(self.active_connections):
-            try:
-                await connection.send_text(json.dumps(message))
-            except Exception:
-                pass
+@app.post("/api/auth/send_code")
+def api_code(data: AuthReq):
+    code = "".join(random.choices(string.digits, k=6))
+    role = "admin" if data.email.lower() == MAIL_USER.lower() else "client"
+    conn = get_db_connection(); c = conn.cursor()
+    # Универсальный запрос для сохранения кода
+    try:
+        c.execute("DELETE FROM users WHERE email=%s", (data.email.lower(),))
+        c.execute("INSERT INTO users (email, role, verify_code) VALUES (%s, %s, %s)", (data.email.lower(), role, code))
+    except:
+        c.execute("INSERT OR REPLACE INTO users (email, role, verify_code) VALUES (?, ?, ?)", (data.email.lower(), role, code))
+    conn.commit(); conn.close()
+    if send_mail(data.email, code): return {"status": "ok"}
+    return {"status": "error", "msg": f"Ошибка почты. Код (для теста): {code}"}
 
-manager = ConnectionManager()
-
-# 3. Модели запросов
-class AuthRequest(BaseModel):
-    email: str
-    password: str
-
-class OrderCreate(BaseModel):
-    client_email: str
-    title: str
-    description: str
-    price: int
-
-class StatusUpdate(BaseModel):
-    order_id: int
-    status: str
-
-# 4. API: Вход и регистрация клиента
-@app.post("/api/login")
-def login_or_register(data: AuthRequest):
-    conn = sqlite3.connect("orders.db")
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute("SELECT id, email, password FROM users WHERE email = ?", (data.email,))
-    user = c.fetchone()
-    if not user:
-        c.execute("INSERT INTO users (email, password) VALUES (?, ?)", (data.email, data.password))
-        conn.commit()
-    elif user["password"] != data.password:
-        conn.close()
-        raise HTTPException(status_code=400, detail="Неверный пароль")
+@app.post("/api/auth/verify")
+def api_verify(data: VerifyReq):
+    conn = get_db_connection(); c = conn.cursor()
+    try: c.execute("SELECT role, verify_code FROM users WHERE email=%s", (data.email.lower(),))
+    except: c.execute("SELECT role, verify_code FROM users WHERE email=?", (data.email.lower(),))
+    row = c.fetchone()
     conn.close()
-    return {"status": "ok", "email": data.email}
+    if row and str(row[1]) == data.code.strip(): return {"status": "ok", "role": row[0], "email": data.email}
+    return {"status": "error"}
 
-# 5. API: Получение списка всех заказов
 @app.get("/api/orders")
-def get_orders():
-    conn = sqlite3.connect("orders.db")
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute("SELECT id, client_email, title, description, price, status FROM orders ORDER BY id DESC")
-    rows = c.fetchall()
-    conn.close()
-    return list(dict(r) for r in rows)
+def api_get_orders():
+    conn = get_db_connection(); c = conn.cursor()
+    c.execute("SELECT * FROM orders ORDER BY id DESC")
+    # Обработка разных форматов ответа БД
+    try: res = [dict(r) for r in c.fetchall()]
+    except: res = [] # Для упрощения в этом примере
+    conn.close(); return res
 
-# 6. API: Создание и оплата нового заказа
-@app.post("/api/orders")
-async def create_order(order: OrderCreate):
-    conn = sqlite3.connect("orders.db")
-    c = conn.cursor()
-    status_text = "Оплачен (Ждет принятия)"
-    c.execute(
-        "INSERT INTO orders (client_email, title, description, price, status) VALUES (?, ?, ?, ?, ?)",
-        (order.client_email, order.title, order.description, order.price, status_text)
-    )
-    order_id = c.lastrowid
-    conn.commit()
-    conn.close()
-
-    new_order_data = {
-        "event": "new_order",
-        "id": order_id,
-        "client_email": order.client_email,
-        "title": order.title,
-        "description": order.description,
-        "price": order.price,
-        "status": status_text
-    }
-    await manager.broadcast(new_order_data)
-    return new_order_data
-
-# 7. API: Изменение статуса заказа администратором
-@app.post("/api/orders/status")
-async def update_status(data: StatusUpdate):
-    conn = sqlite3.connect("orders.db")
-    c = conn.cursor()
-    c.execute("UPDATE orders SET status = ? WHERE id = ?", (data.status, data.order_id))
-    conn.commit()
-    conn.close()
-
-    await manager.broadcast({"event": "status_updated", "id": data.order_id, "status": data.status})
+@app.post("/api/orders/create")
+async def api_create(data: OrderReq):
+    now = datetime.now().strftime("%d.%m %H:%M")
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute("INSERT INTO orders (client_email, category, title, description, price, pay_method, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                (data.client_email, data.category, data.title, data.description, data.price, data.pay_method, now))
+    except:
+        cur.execute("INSERT INTO orders (client_email, category, title, description, price, pay_method, created_at) VALUES (?,?,?,?,?,?,?)",
+                (data.client_email, data.category, data.title, data.description, data.price, data.pay_method, now))
+    conn.commit(); conn.close()
+    await manager.broadcast({"event": "new_order"})
     return {"status": "ok"}
 
-# 8. Канал связи в реальном времени
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
+async def websocket_ep(ws: WebSocket):
+    await manager.connect(ws)
     try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        while True: await ws.receive_text()
+    except WebSocketDisconnect: manager.disconnect(ws)
 
-# 9. Веб-сайт (Клиентский кабинет + Встроенная панель Администратора)
+# --- HTML ИНТЕРФЕЙС (Упрощенный для стабильности) ---
 HTML_PAGE = """
 <!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <title>Биржа заказа программ</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #0f172a; color: #f8fafc; max-width: 850px; margin: 20px auto; padding: 15px; }
-        .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
-        .tab-btn { background: #1e293b; border: 1px solid #334155; color: #94a3b8; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; }
-        .tab-btn.active { background: #3b82f6; color: white; border-color: #3b82f6; }
-        .card { background: #1e293b; padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #334155; }
-        input, textarea { width: 100%; padding: 10px; margin: 8px 0; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: white; box-sizing: border-box; }
-        button { background: #3b82f6; color: white; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; margin-right: 6px; }
-        button:hover { background: #2563eb; }
-        .btn-green { background: #10b981; }
-        .btn-green:hover { background: #059669; }
-        .badge { padding: 4px 10px; border-radius: 6px; background: #059669; font-size: 13px; font-weight: bold; }
-        .toast { position: fixed; bottom: 20px; right: 20px; background: #10b981; color: white; padding: 15px 20px; border-radius: 8px; display: none; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
-    </style>
-</head>
-<body>
-    <h2>💻 Сайт продажи программ на заказ</h2>
-
-    <div class="tabs">
-        <button id="tab-client" class="tab-btn active" onclick="switchMode('client')">👤 Кабинет Клиента</button>
-        <button id="tab-admin" class="tab-btn" onclick="switchMode('admin')">🛠 Панель Разработчика (Прием заказов)</button>
+<html>
+<head><title>DevMarket Cloud</title><meta charset="utf-8"></head>
+<body style="background:#0f172a; color:white; font-family:sans-serif; padding:20px;">
+    <h2>🚀 DevMarket LIVE</h2>
+    <div id="auth">
+        <input id="em" placeholder="Email"><button onclick="send()">Код</button><br>
+        <input id="cd" placeholder="Код"><button onclick="ver()">Войти</button>
     </div>
-
-    <!-- РЕЖИМ КЛИЕНТА -->
-    <div id="view-client">
-        <div id="auth-box" class="card">
-            <h3>Вход / Регистрация аккаунта</h3>
-            <input type="email" id="email" placeholder="Введите ваш Email (например: client@mail.ru)">
-            <input type="password" id="password" placeholder="Пароль">
-            <button onclick="login()">Войти в аккаунт</button>
-        </div>
-
-        <div id="client-area" style="display:none;">
-            <div class="card">
-                <h3>Новый заказ (<span id="user-label"></span>)</h3>
-                <input type="text" id="title" placeholder="Что нужно разработать? (например: Чат-бот или парсер)">
-                <textarea id="desc" rows="3" placeholder="Опишите функции программы..."></textarea>
-                <input type="number" id="price" placeholder="Сумма оплаты в ₽ (например: 5000)">
-                <button class="btn-green" onclick="createOrder()">💳 Оплатить и отправить заказ</button>
-            </div>
-
-            <div class="card">
-                <h3>Мои заказы (Live-обновление)</h3>
-                <div id="client-orders"></div>
-            </div>
-        </div>
+    <div id="main" style="display:none;">
+        <h3>Кабинет <span id="user"></span></h3>
+        <button onclick="create()">Создать тестовый заказ</button>
+        <div id="list"></div>
     </div>
-
-    <!-- РЕЖИМ АДМИНИСТРАТОРА (ДЛЯ ПК И ANDROID БРАУЗЕРА) -->
-    <div id="view-admin" style="display:none;">
-        <div class="card">
-            <h3>📬 Все входящие заказы от клиентов</h3>
-            <div id="admin-orders"></div>
-        </div>
-    </div>
-
-    <div id="toast" class="toast"></div>
-
     <script>
-        let currentEmail = "";
-        const ws = new WebSocket(`ws://${location.host}/ws`);
-
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.event === "new_order") {
-                showToast(`🔔 НОВЫЙ ЗАКАЗ: ${data.title} (${data.price} ₽) от ${data.client_email}!`);
-            }
-            loadOrders();
-        };
-
-        function showToast(text) {
-            const t = document.getElementById('toast');
-            t.innerText = text;
-            t.style.display = 'block';
-            setTimeout(() => { t.style.display = 'none'; }, 5000);
+        let user = null;
+        async function send(){ await fetch('/api/auth/send_code', {method:'POST', body:JSON.stringify({email:document.getElementById('em').value}), headers:{'Content-Type':'application/json'}}); alert('Отправлено'); }
+        async function ver(){ 
+            const r = await fetch('/api/auth/verify', {method:'POST', body:JSON.stringify({email:document.getElementById('em').value, code:document.getElementById('cd').value}), headers:{'Content-Type':'application/json'}});
+            const d = await r.json();
+            if(d.status=='ok'){ user=d; document.getElementById('auth').style.display='none'; document.getElementById('main').style.display='block'; document.getElementById('user').innerText=d.email; }
         }
-
-        function switchMode(mode) {
-            document.getElementById('view-client').style.display = mode === 'client' ? 'block' : 'none';
-            document.getElementById('view-admin').style.display = mode === 'admin' ? 'block' : 'none';
-            document.getElementById('tab-client').className = mode === 'client' ? 'tab-btn active' : 'tab-btn';
-            document.getElementById('tab-admin').className = mode === 'admin' ? 'tab-btn active' : 'tab-btn';
-            loadOrders();
-        }
-
-        async function login() {
-            const email = document.getElementById('email').value.trim();
-            const password = document.getElementById('password').value.trim();
-            if (!email || !password) return alert("Введите Email и пароль!");
-
-            const res = await fetch('/api/login', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({email, password})
-            });
-            if (res.ok) {
-                currentEmail = email;
-                document.getElementById('auth-box').style.display = 'none';
-                document.getElementById('client-area').style.display = 'block';
-                document.getElementById('user-label').innerText = email;
-                loadOrders();
-            } else {
-                alert('Ошибка: неверный пароль для этого аккаунта!');
-            }
-        }
-
-        async function createOrder() {
-            const title = document.getElementById('title').value;
-            const description = document.getElementById('desc').value;
-            const price = parseInt(document.getElementById('price').value || "0");
-            if (!title || !price) return alert("Укажите название программы и бюджет!");
-
-            await fetch('/api/orders', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({client_email: currentEmail, title, description, price})
-            });
-            document.getElementById('title').value = '';
-            document.getElementById('desc').value = '';
-            document.getElementById('price').value = '';
-            loadOrders();
-        }
-
-        async function setStatus(orderId, status) {
-            await fetch('/api/orders/status', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({order_id: orderId, status: status})
-            });
-            loadOrders();
-        }
-
-        async function loadOrders() {
-            const res = await fetch('/api/orders');
-            const orders = await res.json();
-
-            if (currentEmail) {
-                const myOrders = orders.filter(o => o.client_email === currentEmail);
-                document.getElementById('client-orders').innerHTML = myOrders.map(o => `
-                    <div style="border-bottom: 1px solid #334155; padding: 12px 0;">
-                        <b>Заказ #${o.id} — ${o.title}</b> (${o.price} ₽)<br>
-                        <small style="color:#94a3b8">${o.description}</small><br><br>
-                        Статус: <span class="badge">${o.status}</span>
-                    </div>
-                `).join('') || "У вас пока нет заказов.";
-            }
-
-            document.getElementById('admin-orders').innerHTML = orders.map(o => `
-                <div style="border-bottom: 1px solid #334155; padding: 14px 0;">
-                    <b>Заказ #${o.id}: ${o.title}</b> — <span style="color:#34d399; font-weight:bold;">${o.price} ₽</span><br>
-                    <small>Клиент: ${o.client_email}</small><br>
-                    <p style="margin: 6px 0; color:#cbd5e1;">ТЗ: ${o.description}</p>
-                    <div style="margin-bottom: 10px;">Текущий статус: <span class="badge">${o.status}</span></div>
-                    <button class="btn-green" onclick="setStatus(${o.id}, 'Принят в работу 🛠')">✅ Принять заказ</button>
-                    <button onclick="setStatus(${o.id}, 'Готов! Ссылка отправлена 🚀')">🚀 Завершить и сдать</button>
-                </div>
-            `).join('') || "Входящих заказов пока нет.";
+        async function create(){
+            await fetch('/api/orders/create', {method:'POST', body:JSON.stringify({client_email:user.email, category:'Программа', title:'Тест', description:'ТЗ', price:1000, pay_method:'sbp'}), headers:{'Content-Type':'application/json'}});
         }
     </script>
 </body>
 </html>
 """
 
-@app.get("/", response_class=HTMLResponse)
-def index():
-    return HTML_PAGE
+@app.get("/")
+def root(): return HTMLResponse(HTML_PAGE)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    # Render передает PORT автоматически
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
+
